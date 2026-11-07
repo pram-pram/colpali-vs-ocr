@@ -1,8 +1,10 @@
 """Load ViDoRe subsets and normalize them into pages and queries."""
 from __future__ import annotations
 
+import io
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from PIL import Image
 
@@ -17,7 +19,14 @@ SUBSETS: dict[str, str] = {
 @dataclass(frozen=True)
 class Page:
     id: str
-    image: Image.Image = field(compare=False, repr=False)
+    # Encoded image bytes (as loaded from the dataset) or an in-memory PIL image.
+    image: Image.Image | bytes = field(compare=False, repr=False)
+
+    def pil(self) -> Image.Image:
+        """A freshly decoded RGB image; encoded pages are never kept decoded in RAM."""
+        if isinstance(self.image, bytes):
+            return Image.open(io.BytesIO(self.image)).convert("RGB")
+        return self.image.convert("RGB")
 
 
 @dataclass(frozen=True)
@@ -40,7 +49,10 @@ def normalize_rows(
     for row in rows:
         page_id = row["image_filename"]
         if page_id not in pages:
-            pages[page_id] = Page(id=page_id, image=row["image"])
+            image = row["image"]
+            if isinstance(image, dict):  # undecoded datasets.Image: {"bytes", "path"}
+                image = image["bytes"] or Path(image["path"]).read_bytes()
+            pages[page_id] = Page(id=page_id, image=image)
         text = row.get("query")
         if text is None or not text.strip():
             continue
@@ -60,9 +72,13 @@ def normalize_rows(
 
 
 def load_subset(key: str, limit: int | None = None) -> tuple[list[Page], list[Query]]:
+    from datasets import Image as ImageFeature
     from datasets import load_dataset
 
-    return normalize_rows(load_dataset(SUBSETS[key], split="test"), limit)
+    ds = load_dataset(SUBSETS[key], split="test")
+    # Keep images encoded; decoding every page up front can exceed Colab RAM.
+    ds = ds.cast_column("image", ImageFeature(decode=False))
+    return normalize_rows(ds, limit)
 
 
 def validate(pages: list[Page], queries: list[Query]) -> None:

@@ -26,6 +26,10 @@ def run_arm(
     limit: int | None,
     k: int = 10,
 ) -> dict:
+    if not pages:
+        raise ValueError(f"{subset}: no pages to index")
+    if not queries:
+        raise ValueError(f"{subset}: no queries to evaluate")
     validate(pages, queries)
     stats = retriever.index(pages)
 
@@ -69,12 +73,16 @@ def check_same_pages(results: list[dict]) -> None:
 _ocr_engine: DoctrEngine | None = None
 
 
-def _ocr(pages: list[Page], cache_dir: Path) -> OcrResult:
-    """OCR with one DoctrEngine per process, created on first use."""
+def _get_ocr_engine() -> DoctrEngine:
+    """Shared DoctrEngine, created on the first OCR cache miss; `_free_gpu` releases it."""
     global _ocr_engine
     if _ocr_engine is None:
         _ocr_engine = DoctrEngine()
-    return run_ocr(pages, _ocr_engine, cache_dir)
+    return _ocr_engine
+
+
+def _ocr(pages: list[Page], cache_dir: Path) -> OcrResult:
+    return run_ocr(pages, _get_ocr_engine, cache_dir)
 
 
 def build_retriever(arm: str, subset: str, artifacts: Path) -> Retriever:
@@ -116,6 +124,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _free_gpu() -> None:
+    """Release the OCR engine and cached GPU memory between arms (colqwen needs the room)."""
+    global _ocr_engine
+    _ocr_engine = None
     gc.collect()
     import torch
 

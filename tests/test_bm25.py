@@ -46,3 +46,12 @@ def test_all_pages_empty(tmp_path):
     stats = r.index(pages)
     assert stats.num_pages == 5
     assert r.search(queries, k=3) == {q.id: [] for q in queries}
+
+
+def test_zero_score_pages_dropped(tmp_path):
+    pages, _, texts = synthetic_corpus()
+    r = BM25Retriever(fake_ocr_fn(texts), tmp_path)
+    r.index(pages)
+    q = Query(id="qv", text="volcano", relevant_page_ids=frozenset({"s0"}))
+    hits = r.search([q], k=5)["qv"]
+    assert [pid for pid, _ in hits] == ["s0"] and hits[0][1] > 0

@@ -55,3 +55,30 @@ def test_subsets_mapping():
         "infovqa": "vidore/infovqa_test_subsampled",
         "arxivqa": "vidore/arxivqa_test_subsampled",
     }
+
+
+def _png_bytes(size=(12, 7)) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("L", size, 128).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_normalize_rows_keeps_encoded_bytes_and_pil_decodes():
+    rows = [{"image_filename": "p1", "query": "q", "image": {"bytes": _png_bytes(), "path": None}}]
+    pages, _ = normalize_rows(rows)
+    assert isinstance(pages[0].image, bytes)
+    im = pages[0].pil()
+    assert im.mode == "RGB" and im.size == (12, 7)
+
+
+def test_pil_from_pil_page():
+    from PIL import Image
+
+    from cvo.data import Page
+
+    im = Page("p", Image.new("L", (5, 3))).pil()
+    assert im.mode == "RGB" and im.size == (5, 3)

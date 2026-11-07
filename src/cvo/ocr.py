@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -43,8 +44,12 @@ class OcrResult:
     pages_failed: int
 
 
-def run_ocr(pages: list[Page], engine: OcrEngine, cache_dir: Path) -> OcrResult:
+def run_ocr(
+    pages: list[Page], engine_factory: Callable[[], OcrEngine], cache_dir: Path
+) -> OcrResult:
+    """OCR each page once, caching per page. The engine is built only on the first cache miss."""
     cache_dir = Path(cache_dir)
+    engine: OcrEngine | None = None
     cache_dir.mkdir(parents=True, exist_ok=True)
     texts: dict[str, str] = {}
     seconds = 0.0
@@ -54,9 +59,11 @@ def run_ocr(pages: list[Page], engine: OcrEngine, cache_dir: Path) -> OcrResult:
         if path.exists():
             rec = load_json(path)
         else:
+            if engine is None:
+                engine = engine_factory()
             start = time.perf_counter()
             try:
-                rec = {"text": engine.read(page.image), "failed": False}
+                rec = {"text": engine.read(page.pil()), "failed": False}
             except Exception as exc:
                 log.warning("OCR failed for page %s: %s", page.id, exc)
                 rec = {"text": "", "failed": True}

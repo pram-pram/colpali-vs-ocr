@@ -1,4 +1,4 @@
-"""Page images -> ColQwen2 multi-vector embeddings (sharded on disk) -> MaxSim retrieval."""
+"""Page images -> ColQwen2 multi-vector embeddings (sharded on disk) -> batched MaxSim retrieval."""
 from __future__ import annotations
 
 import io
@@ -57,6 +57,33 @@ def maxsim(query: torch.Tensor, docs: list[torch.Tensor]) -> torch.Tensor:
     return torch.stack([(q @ d.float().T).max(dim=1).values.sum() for d in docs])
 
 
+def pad_embeddings(
+    docs: list[torch.Tensor], device: torch.device | str
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Stack per-page `[n_i, d]` embeddings into fp16 `[N, P_max, d]` plus a bool mask `[N, P_max]`."""
+    p_max = max(d.shape[0] for d in docs)
+    padded = torch.zeros(len(docs), p_max, docs[0].shape[1], dtype=torch.float16, device=device)
+    mask = torch.zeros(len(docs), p_max, dtype=torch.bool, device=device)
+    for i, d in enumerate(docs):
+        padded[i, : d.shape[0]] = d.to(device, torch.float16)
+        mask[i, : d.shape[0]] = True
+    return padded, mask
+
+
+def batched_maxsim(
+    query: torch.Tensor, padded: torch.Tensor, mask: torch.Tensor, chunk: int = 256
+) -> torch.Tensor:
+    """Same scores as `maxsim`, computed on padded pages in chunks (float32 per chunk); returns CPU."""
+    q = query.to(padded.device, torch.float32)
+    scores = []
+    for start in range(0, padded.shape[0], chunk):
+        pages = padded[start : start + chunk].float()  # [c, P, d]
+        sim = torch.einsum("td,cpd->ctp", q, pages)  # [c, T, P]
+        sim.masked_fill_(~mask[start : start + chunk, None, :], float("-inf"))
+        scores.append(sim.max(dim=2).values.sum(dim=1))
+    return torch.cat(scores).cpu()
+
+
 class ColQwenRetriever:
     name = "colqwen"
 
@@ -74,6 +101,8 @@ class ColQwenRetriever:
         self._shard_size = shard_size
         self._page_ids: list[str] = []
         self._embeddings: list[torch.Tensor] = []
+        self._padded: torch.Tensor | None = None  # [N, P_max, d] fp16, on GPU when available
+        self._mask: torch.Tensor | None = None  # [N, P_max] bool
 
     def _encode_pages(self, pages: list[Page]) -> list[torch.Tensor]:
         """Encode in batches; on CUDA OOM halve the batch size and retry from the same page."""
@@ -81,11 +110,15 @@ class ColQwenRetriever:
         while len(embeddings) < len(pages):
             start = len(embeddings)
             batch = pages[start : start + self.batch_size]
+            oom = False
             try:
-                embeddings.extend(self._encoder.encode_images([p.image for p in batch]))
+                embeddings.extend(self._encoder.encode_images([p.pil() for p in batch]))
             except torch.cuda.OutOfMemoryError:
                 if self.batch_size == 1:
                     raise
+                oom = True
+            if oom:
+                # Outside the except block so the exception's frames no longer pin GPU memory.
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 self.batch_size //= 2
@@ -119,6 +152,10 @@ class ColQwenRetriever:
             self._page_ids.extend(shard["page_ids"])
             self._embeddings.extend(shard["embeddings"])
             seconds += shard["seconds"]
+        self._padded, self._mask = None, None
+        if self._embeddings:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self._padded, self._mask = pad_embeddings(self._embeddings, device)
         return IndexStats(
             seconds=seconds,
             bytes_stored=sum(e.nbytes for e in self._embeddings),
@@ -137,7 +174,7 @@ class ColQwenRetriever:
             batch = queries[start : start + self.batch_size]
             query_embeddings.extend(self._encoder.encode_queries([q.text for q in batch]))
         for query, q_emb in zip(queries, query_embeddings):
-            scores = maxsim(q_emb, self._embeddings)
+            scores = batched_maxsim(q_emb, self._padded, self._mask)
             top = torch.topk(scores, min(k, len(scores)))
             results[query.id] = [
                 (self._page_ids[i], float(s)) for s, i in zip(top.values, top.indices)

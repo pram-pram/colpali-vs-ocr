@@ -61,3 +61,11 @@ def test_bm25_reindex_does_not_double_count_bytes(tmp_path):
     r = BM25Retriever(fake_ocr_fn(texts), tmp_path)
     first = r.index(pages).bytes_stored
     assert r.index(pages).bytes_stored == first
+
+
+def test_run_arm_rejects_empty_queries_or_pages(tmp_path):
+    pages, queries, _ = synthetic_corpus()
+    with pytest.raises(ValueError, match="no queries"):
+        run_arm("tiny", FakeRetriever(perfect=True), pages, [], tmp_path, limit=None)
+    with pytest.raises(ValueError, match="no pages"):
+        run_arm("tiny", FakeRetriever(perfect=True), [], queries, tmp_path, limit=None)

@@ -73,5 +73,7 @@ class BM25Retriever:
                 [known], k=num_chunks, show_progress=False
             )
             page_ids = [self._chunk_page_ids[i] for i in docs[0]]
-            results[query.id] = max_per_page(page_ids, np.asarray(scores[0]), k)
+            ranked = max_per_page(page_ids, np.asarray(scores[0]), k)
+            # A page whose best chunk scores <= 0 shares no query term: not a hit.
+            results[query.id] = [(pid, s) for pid, s in ranked if s > 0]
         return results

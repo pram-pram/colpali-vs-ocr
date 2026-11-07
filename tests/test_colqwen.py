@@ -4,7 +4,13 @@ from fixtures import make_pages, synthetic_corpus
 from PIL import Image
 
 from cvo.data import Query
-from cvo.retrievers.colqwen import ColQwen2Encoder, ColQwenRetriever, maxsim
+from cvo.retrievers.colqwen import (
+    ColQwen2Encoder,
+    ColQwenRetriever,
+    batched_maxsim,
+    maxsim,
+    pad_embeddings,
+)
 
 DIM = 256
 
@@ -41,6 +47,21 @@ def test_maxsim_hand_computed():
     q = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
     d = [torch.tensor([[1.0, 0.0], [0.5, 0.5]]), torch.tensor([[0.0, 2.0]])]
     assert maxsim(q, d).tolist() == [1.5, 2.0]
+
+
+def test_batched_maxsim_matches_reference():
+    g = torch.Generator().manual_seed(0)
+    docs = [torch.randn(n, 16, generator=g).half() for n in (5, 9, 1, 9, 3)]
+    padded, mask = pad_embeddings(docs, device="cpu")
+    assert padded.shape == (5, 9, 16) and padded.dtype == torch.float16
+    assert mask.sum(dim=1).tolist() == [5, 9, 1, 9, 3]
+    for n_tokens in (1, 4):
+        q = torch.randn(n_tokens, 16, generator=g).half()
+        expected = maxsim(q, docs)
+        for chunk in (2, 256):
+            got = batched_maxsim(q, padded, mask, chunk=chunk)
+            assert got.shape == (5,) and got.device.type == "cpu"
+            assert torch.allclose(got, expected, atol=1e-3)
 
 
 def test_resume_skips_completed_shards(tmp_path):  # Review Focus 4

@@ -33,14 +33,28 @@ class FailingEngine:
 def test_ocr_caches_and_reuses(tmp_path):
     eng = CountingEngine()
     pages = make_pages(3)
-    first = run_ocr(pages, eng, tmp_path)
-    second = run_ocr(pages, eng, tmp_path)
+    first = run_ocr(pages, lambda: eng, tmp_path)
+    second = run_ocr(pages, lambda: eng, tmp_path)
     assert eng.calls == 3 and first.texts == second.texts
     assert second.seconds == approx(first.seconds)  # recorded time, not cache-load time
 
 
 def test_ocr_failure_recorded_not_dropped(tmp_path, caplog):
     with caplog.at_level(logging.WARNING):
-        res = run_ocr(make_pages(2), FailingEngine(fail_on=1), tmp_path)
+        res = run_ocr(make_pages(2), lambda: FailingEngine(fail_on=1), tmp_path)
     assert set(res.texts) == {"p0", "p1"} and res.texts["p1"] == "" and res.pages_failed == 1
     assert "p1" in caplog.text
+
+
+def test_ocr_engine_factory_called_once_and_only_on_cache_miss(tmp_path):
+    made = []
+
+    def factory():
+        made.append(CountingEngine())
+        return made[-1]
+
+    pages = make_pages(3)
+    run_ocr(pages, factory, tmp_path)
+    assert len(made) == 1 and made[0].calls == 3
+    run_ocr(pages, factory, tmp_path)  # everything cached
+    assert len(made) == 1
