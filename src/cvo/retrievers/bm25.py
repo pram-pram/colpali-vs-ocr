@@ -7,9 +7,8 @@ from pathlib import Path
 import bm25s
 import numpy as np
 
-from cvo.chunking import chunk_text
 from cvo.data import Page, Query
-from cvo.retrievers.base import IndexStats, OcrFn, max_per_page
+from cvo.retrievers.base import IndexStats, OcrFn, max_per_page, ocr_chunks
 
 
 class BM25Retriever:
@@ -24,13 +23,7 @@ class BM25Retriever:
         self._bm25: bm25s.BM25 | None = None
 
     def index(self, pages: list[Page]) -> IndexStats:
-        ocr = self._ocr_fn(pages)
-        chunks: list[str] = []
-        self._chunk_page_ids = []
-        for page in pages:
-            for chunk in chunk_text(ocr.texts.get(page.id, "")):
-                chunks.append(chunk)
-                self._chunk_page_ids.append(page.id)
+        chunks, self._chunk_page_ids, ocr = ocr_chunks(pages, self._ocr_fn)
 
         start = time.perf_counter()
         self._bm25, self._vocab = None, {}

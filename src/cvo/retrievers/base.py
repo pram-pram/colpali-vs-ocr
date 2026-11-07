@@ -7,6 +7,7 @@ from typing import Protocol
 
 import numpy as np
 
+from cvo.chunking import chunk_text
 from cvo.data import Page, Query
 from cvo.ocr import OcrResult
 
@@ -30,6 +31,20 @@ class Retriever(Protocol):
     def search(
         self, queries: list[Query], k: int
     ) -> dict[str, list[tuple[str, float]]]: ...
+
+
+def ocr_chunks(
+    pages: list[Page], ocr_fn: OcrFn
+) -> tuple[list[str], list[str], OcrResult]:
+    """OCR the pages and split into chunks: (chunks, page id of each chunk, OCR result)."""
+    ocr = ocr_fn(pages)
+    chunks: list[str] = []
+    chunk_page_ids: list[str] = []
+    for page in pages:
+        for chunk in chunk_text(ocr.texts.get(page.id, "")):
+            chunks.append(chunk)
+            chunk_page_ids.append(page.id)
+    return chunks, chunk_page_ids, ocr
 
 
 def max_per_page(
