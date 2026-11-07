@@ -1,6 +1,7 @@
 """OCR text -> chunks -> BM25 page retrieval."""
 from __future__ import annotations
 
+import shutil
 import time
 from pathlib import Path
 
@@ -33,6 +34,11 @@ class BM25Retriever:
             self._bm25 = bm25s.BM25()
             self._bm25.index(tokens, show_progress=False)
             self._store_dir.mkdir(parents=True, exist_ok=True)
+            for old in self._store_dir.iterdir():  # drop files from earlier index calls
+                if old.is_file():
+                    old.unlink()
+                else:
+                    shutil.rmtree(old)
             self._bm25.save(self._store_dir)
         indexing_seconds = time.perf_counter() - start
 
