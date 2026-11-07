@@ -27,5 +27,5 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 markers = ["gpu: needs CUDA"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests"]
 testpaths = ["tests"]
