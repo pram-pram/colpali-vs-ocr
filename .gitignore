@@ -1,0 +1,7 @@
+artifacts/
+__pycache__/
+*.egg-info/
+.venv/
+.superpowers/
+.pytest_cache/
+results_smoke/

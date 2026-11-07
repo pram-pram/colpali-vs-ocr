@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cvo"
+version = "0.1.0"
+description = "Benchmark: OCR-based vs ColPali/ColQwen2 page retrieval"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "numpy",
+    "pillow",
+    "datasets>=3",
+    "bm25s>=0.2",
+    "matplotlib",
+    "pytest",
+]
+
+[project.optional-dependencies]
+ocr = ["python-doctr[torch]>=1.0"]
+dense = ["sentence-transformers>=3"]
+vision = ["colpali-engine>=0.3.4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+markers = ["gpu: needs CUDA"]
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]
