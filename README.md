@@ -13,7 +13,7 @@ one wins.
 
 ## TL;DR
 
-_Filled in after the Colab run — see Task 11_
+_Filled in after the Colab run._
 
 ## How to run
 
@@ -63,23 +63,27 @@ are counted in `pages_failed`. Both text arms include the total OCR time in thei
 cost.
 
 **Vision arm.** ColQwen2 in fp16, batch size 4 (halved on CUDA OOM), per-page multi-vector
-embeddings stored in shards of 100 pages, brute-force MaxSim search.
+embeddings stored in shards of 100 pages, brute-force MaxSim search. After indexing, all
+page embeddings are padded once into a single fp16 tensor and MaxSim is scored in batches of
+pages on the GPU (one matmul per batch, padded patches masked out).
 
 **Metrics.** Quality: nDCG@5 (headline, as in ViDoRe) and Recall@1/5/10. Cost: indexing
 seconds per page (fresh compute only, never cache-load time), query latency in ms
-(mean, model already loaded), and stored bytes per page. Every results JSON also records
-library versions, model ids, GPU name, `--limit` and timestamp.
+(mean, model already loaded), and stored bytes per page. Bytes per page are not measured
+the same way for every arm: for `dense` it is the in-memory float32 embedding matrix, for
+`colqwen` the fp16 multi-vector embeddings, and for `bm25` the on-disk index size. Every
+results JSON also records library versions, model ids, GPU name, `--limit` and timestamp.
 
 ## Results
 
-_Filled in after the Colab run — see Task 11_
+_Filled in after the Colab run._
 
 Charts (written to `results/plots/`): `ndcg_by_subset.png`, `quality_vs_cost.png`,
 `storage_per_page.png`.
 
 ## Failure analysis
 
-_Filled in after the Colab run — see Task 11_
+_Filled in after the Colab run._
 
 The notebook renders a gallery of queries where ColQwen2 is right at rank 1 and BM25 has
 nothing in its top 5 (and the reverse), with the page each arm returned.
